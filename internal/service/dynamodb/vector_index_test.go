@@ -144,6 +144,48 @@ func TestAccDynamoDBVectorIndex_dimensionsOutOfRange(t *testing.T) {
 	})
 }
 
+func TestAccDynamoDBVectorIndex_timeouts(t *testing.T) {
+	ctx := acctest.Context(t)
+	if testing.Short() {
+		t.Skip("skipping long-running test in short mode")
+	}
+
+	var index awstypes.VectorIndexDescription
+
+	resourceName := "aws_dynamodb_vector_index.test"
+
+	rNameTable := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
+	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
+
+	acctest.ParallelTest(ctx, t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.DynamoDBServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccCheckVectorIndexDestroy(ctx, t),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccVectorIndexConfig_noSearchSchema(rNameTable, rName),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccCheckVectorIndexExists(ctx, t, resourceName, &index),
+				),
+			},
+			{
+				Config: testAccVectorIndexConfig_timeouts(rNameTable, rName),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction(resourceName, plancheck.ResourceActionUpdate),
+					},
+				},
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccCheckVectorIndexExists(ctx, t, resourceName, &index),
+					resource.TestCheckResourceAttr(resourceName, "timeouts.create", "45m"),
+					resource.TestCheckResourceAttr(resourceName, "timeouts.delete", "15m"),
+				),
+			},
+		},
+	})
+}
+
 func testAccCheckVectorIndexDestroy(ctx context.Context, t *testing.T) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		conn := acctest.ProviderMeta(ctx, t).DynamoDBClient(ctx)
@@ -246,6 +288,37 @@ resource "aws_dynamodb_vector_index" "test" {
 `, tableName, indexName)
 }
 
+func testAccVectorIndexConfig_noSearchSchema(tableName, indexName string) string {
+	return fmt.Sprintf(`
+resource "aws_dynamodb_table" "test" {
+  name         = %[1]q
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+}
+
+resource "aws_dynamodb_vector_index" "test" {
+  table_name = aws_dynamodb_table.test.name
+  index_name = %[2]q
+
+  dimensions        = 2
+  distance_function = "COSINE"
+
+  vector_attribute = {
+    attribute_name = "embedding"
+  }
+
+  projection {
+    projection_type = "ALL"
+  }
+}
+`, tableName, indexName)
+}
+
 func testAccVectorIndexConfig_dimensionsAndDistance(tableName, indexName string, dimensions int, distanceFunction string) string {
 	return fmt.Sprintf(`
 resource "aws_dynamodb_table" "test" {
@@ -321,6 +394,42 @@ resource "aws_dynamodb_vector_index" "test" {
     attribute_name = "sk"
     attribute_type = "S"
     type           = "INLINE_FILTER"
+  }
+}
+`, tableName, indexName)
+}
+
+func testAccVectorIndexConfig_timeouts(tableName, indexName string) string {
+	return fmt.Sprintf(`
+resource "aws_dynamodb_table" "test" {
+  name         = %[1]q
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+}
+
+resource "aws_dynamodb_vector_index" "test" {
+  table_name = aws_dynamodb_table.test.name
+  index_name = %[2]q
+
+  dimensions        = 2
+  distance_function = "COSINE"
+
+  vector_attribute = {
+    attribute_name = "embedding"
+  }
+
+  projection {
+    projection_type = "ALL"
+  }
+
+  timeouts {
+    create = "45m"
+    delete = "15m"
   }
 }
 `, tableName, indexName)

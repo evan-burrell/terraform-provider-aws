@@ -10,7 +10,7 @@ description: |-
 
 Manages a vector index on a DynamoDB table, enabling similarity search over vector embeddings stored in table items via the `SearchVectors` API.
 
-A vector index cannot be modified in place; any configuration change forces replacement of the index. Deleting a vector index does not delete the underlying table or its items.
+A vector index cannot be modified in place. A change to any argument except `timeouts` replaces the index. Deleting a vector index does not delete the underlying table or its items.
 
 ## Example Usage
 

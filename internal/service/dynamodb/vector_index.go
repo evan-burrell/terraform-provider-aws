@@ -57,11 +57,13 @@ func newVectorIndexResource(_ context.Context) (resource.ResourceWithConfigure, 
 	return r, nil
 }
 
+// Every argument except timeouts forces replacement, because UpdateTable can only
+// create or delete a vector index. A change to timeouts alone is an in-place update,
+// which the no-op Update from framework.ResourceWithModel saves to state.
 type vectorIndexResource struct {
 	framework.ResourceWithModel[vectorIndexResourceModel]
 	framework.WithTimeouts
 	framework.WithImportByIdentity
-	framework.WithNoUpdate
 }
 
 func (r *vectorIndexResource) Schema(ctx context.Context, request resource.SchemaRequest, response *resource.SchemaResponse) {
@@ -314,11 +316,6 @@ func (r *vectorIndexResource) Read(ctx context.Context, request resource.ReadReq
 
 	response.Diagnostics.Append(response.State.Set(ctx, &data)...)
 }
-
-// Update is never invoked: every attribute forces replacement, since the underlying
-// UpdateTable VectorIndexUpdates API only supports Create/Delete, not an in-place
-// update of an existing vector index's configuration. framework.WithNoUpdate handles
-// the case with an error diagnostic rather than silently persisting the plan.
 
 func (r *vectorIndexResource) Delete(ctx context.Context, request resource.DeleteRequest, response *resource.DeleteResponse) {
 	var data vectorIndexResourceModel
