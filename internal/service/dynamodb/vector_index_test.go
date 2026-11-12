@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/YakDriver/regexache"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awstypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
@@ -99,6 +100,64 @@ func TestAccDynamoDBVectorIndex_disappears(t *testing.T) {
 						plancheck.ExpectResourceAction(resourceName, plancheck.ResourceActionCreate),
 					},
 				},
+			},
+		},
+	})
+}
+
+func TestAccDynamoDBVectorIndex_createWhileDeleting(t *testing.T) {
+	ctx := acctest.Context(t)
+	if testing.Short() {
+		t.Skip("skipping long-running test in short mode")
+	}
+
+	var conf awstypes.TableDescription
+	var index1, index2 awstypes.VectorIndexDescription
+
+	resourceNameTable := "aws_dynamodb_table.test"
+	resourceName1 := "aws_dynamodb_vector_index.test1"
+	resourceName2 := "aws_dynamodb_vector_index.test2"
+
+	rNameTable := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
+	rName1 := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
+	rName2 := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
+
+	acctest.ParallelTest(ctx, t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.DynamoDBServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		ExternalProviders: map[string]resource.ExternalProvider{
+			"time": {
+				Source:            "hashicorp/time",
+				VersionConstraint: "0.14.0",
+			},
+		},
+		CheckDestroy: testAccCheckVectorIndexDestroy(ctx, t),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccVectorIndexConfig_createWhileDeleting1(rNameTable, rName1),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccCheckVectorIndexExists(ctx, t, resourceName1, &index1),
+				),
+			},
+			{
+				// The delete of test1 and the create of the table item start together, once
+				// the AWS provider is configured. time_sleep then delays the create of test2 by
+				// 1.5 seconds. In three measurements on indexes created with their table, a
+				// deleted vector index stayed DELETING for 2.9 to 5.4 seconds, so the first poll
+				// of the create normally sees test1 DELETING.
+				Config: testAccVectorIndexConfig_createWhileDeleting2(rNameTable, rName2),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction(resourceName1, plancheck.ResourceActionDestroy),
+						plancheck.ExpectResourceAction(resourceName2, plancheck.ResourceActionCreate),
+					},
+				},
+				Check: resource.ComposeAggregateTestCheckFunc(
+					testAccCheckVectorIndexExists(ctx, t, resourceName2, &index2),
+					testAccCheckTableExists(ctx, t, resourceNameTable, &conf),
+					testAccCheckTableVectorIndexCount(&conf, 1),
+				),
 			},
 		},
 	})
@@ -230,6 +289,16 @@ func testAccCheckVectorIndexExists(ctx context.Context, t *testing.T, n string, 
 		}
 
 		*v = *output
+
+		return nil
+	}
+}
+
+func testAccCheckTableVectorIndexCount(table *awstypes.TableDescription, want int) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		if got := len(table.VectorIndexes); got != want {
+			return fmt.Errorf("table %s has %d vector indexes, expected %d", aws.ToString(table.TableName), got, want)
+		}
 
 		return nil
 	}
@@ -431,6 +500,87 @@ resource "aws_dynamodb_vector_index" "test" {
     create = "45m"
     delete = "15m"
   }
+}
+`, tableName, indexName)
+}
+
+func testAccVectorIndexConfig_createWhileDeleting1(tableName, indexName string) string {
+	return fmt.Sprintf(`
+resource "aws_dynamodb_table" "test" {
+  name         = %[1]q
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+}
+
+resource "aws_dynamodb_vector_index" "test1" {
+  table_name = aws_dynamodb_table.test.name
+  index_name = %[2]q
+
+  dimensions        = 2
+  distance_function = "COSINE"
+
+  vector_attribute = {
+    attribute_name = "embedding"
+  }
+
+  projection {
+    projection_type = "ALL"
+  }
+}
+`, tableName, indexName)
+}
+
+func testAccVectorIndexConfig_createWhileDeleting2(tableName, indexName string) string {
+	return fmt.Sprintf(`
+resource "aws_dynamodb_table" "test" {
+  name         = %[1]q
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+}
+
+resource "aws_dynamodb_table_item" "test" {
+  table_name = aws_dynamodb_table.test.name
+  hash_key   = aws_dynamodb_table.test.hash_key
+
+  item = <<ITEM
+{
+  "pk": {"S": "test"}
+}
+ITEM
+}
+
+resource "time_sleep" "test" {
+  create_duration = "1.5s"
+
+  depends_on = [aws_dynamodb_table_item.test]
+}
+
+resource "aws_dynamodb_vector_index" "test2" {
+  table_name = aws_dynamodb_table.test.name
+  index_name = %[2]q
+
+  dimensions        = 2
+  distance_function = "COSINE"
+
+  vector_attribute = {
+    attribute_name = "embedding"
+  }
+
+  projection {
+    projection_type = "ALL"
+  }
+
+  depends_on = [time_sleep.test]
 }
 `, tableName, indexName)
 }
