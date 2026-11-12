@@ -73,7 +73,7 @@ The following arguments are optional:
 ### `search_schema`
 
 * `attribute_name` - (Required) Name of the attribute.
-* `attribute_type` - (Required) Type of the attribute. Valid values are `S` (string), `N` (number), or `B` (binary).
+* `attribute_type` - (Required) Type of the attribute. Valid values are `S` (string), `N` (number), or `B` (binary). If the table already defines the attribute, for example as a key, this value must match that definition.
 * `type` - (Required) Role of the attribute in the search schema.
   Valid values are `HASH` (a partition key that partitions the vector index for independent scaling; its value must be supplied in `SearchConditionExpression` when searching) or `INLINE_FILTER` (an attribute projected into the vector index for filtering at the storage layer during search; optional in `SearchConditionExpression`).
 

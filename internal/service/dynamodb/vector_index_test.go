@@ -104,6 +104,26 @@ func TestAccDynamoDBVectorIndex_disappears(t *testing.T) {
 	})
 }
 
+func TestAccDynamoDBVectorIndex_searchSchemaTypeMismatch(t *testing.T) {
+	ctx := acctest.Context(t)
+
+	rNameTable := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
+	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
+
+	acctest.ParallelTest(ctx, t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.DynamoDBServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccCheckVectorIndexDestroy(ctx, t),
+		Steps: []resource.TestStep{
+			{
+				Config:      testAccVectorIndexConfig_searchSchemaTypeMismatch(rNameTable, rName),
+				ExpectError: regexache.MustCompile(`Invalid Search Schema Type Change(?s:.*)attribute\s+"pk"\s+was\s+previously\s+defined\s+as\s+"S"(?s:.*)Invalid Search Schema Type Change(?s:.*)attribute\s+"sk"\s+was\s+previously\s+defined\s+as\s+"N"`),
+			},
+		},
+	})
+}
+
 func TestAccDynamoDBVectorIndex_dimensionsOutOfRange(t *testing.T) {
 	ctx := acctest.Context(t)
 
@@ -255,4 +275,53 @@ resource "aws_dynamodb_vector_index" "test" {
   }
 }
 `, tableName, indexName, dimensions, distanceFunction)
+}
+
+func testAccVectorIndexConfig_searchSchemaTypeMismatch(tableName, indexName string) string {
+	return fmt.Sprintf(`
+resource "aws_dynamodb_table" "test" {
+  name         = %[1]q
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+  range_key    = "sk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "sk"
+    type = "N"
+  }
+}
+
+resource "aws_dynamodb_vector_index" "test" {
+  table_name = aws_dynamodb_table.test.name
+  index_name = %[2]q
+
+  dimensions        = 2
+  distance_function = "COSINE"
+
+  vector_attribute = {
+    attribute_name = "embedding"
+  }
+
+  projection {
+    projection_type = "ALL"
+  }
+
+  search_schema {
+    attribute_name = "pk"
+    attribute_type = "N"
+    type           = "HASH"
+  }
+
+  search_schema {
+    attribute_name = "sk"
+    attribute_type = "S"
+    type           = "INLINE_FILTER"
+  }
+}
+`, tableName, indexName)
 }

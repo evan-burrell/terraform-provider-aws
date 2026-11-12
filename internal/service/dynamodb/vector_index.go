@@ -19,6 +19,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
@@ -186,6 +187,11 @@ func (r *vectorIndexResource) Create(ctx context.Context, request resource.Creat
 			err.Error(),
 		)
 
+		return
+	}
+
+	response.Diagnostics.Append(validateNewVectorIndexAttributes(ctx, data, table)...)
+	if response.Diagnostics.HasError() {
 		return
 	}
 
@@ -414,6 +420,36 @@ func flattenVectorIndex(ctx context.Context, data *vectorIndexResourceModel, ind
 		}
 	}
 	data.SearchSchema = fwtypes.NewListNestedObjectValueOfValueSliceMust(ctx, elements)
+
+	return diags
+}
+
+// validateNewVectorIndexAttributes returns an error for each search_schema attribute that the
+// table already defines with a different type. Create sends the table's existing definition for
+// such an attribute, so DynamoDB builds the index with the table's type and the apply then fails
+// with an inconsistent result.
+func validateNewVectorIndexAttributes(ctx context.Context, data vectorIndexResourceModel, table *awstypes.TableDescription) diag.Diagnostics {
+	var diags diag.Diagnostics
+
+	tableAttributeTypes := make(map[string]awstypes.ScalarAttributeType, len(table.AttributeDefinitions))
+	for _, attribute := range table.AttributeDefinitions {
+		tableAttributeTypes[aws.ToString(attribute.AttributeName)] = attribute.AttributeType
+	}
+
+	searchSchemaPath := path.Root("search_schema")
+
+	for i, sse := range fwdiag.Must(data.SearchSchema.ToSlice(ctx)) {
+		attributeName := sse.AttributeName.ValueString()
+		searchSchemaAttributeType := sse.AttributeType.ValueEnum()
+
+		if tableAttributeType, ok := tableAttributeTypes[attributeName]; ok && tableAttributeType != searchSchemaAttributeType {
+			diags.Append(diag.NewAttributeErrorDiagnostic(
+				searchSchemaPath.AtListIndex(i).AtName("attribute_type"),
+				"Invalid Search Schema Type Change",
+				fmt.Sprintf(`The "attribute_type" of the search schema attribute %q was previously defined as %q. It cannot be redefined as %q.`, attributeName, tableAttributeType, searchSchemaAttributeType),
+			))
+		}
+	}
 
 	return diags
 }
