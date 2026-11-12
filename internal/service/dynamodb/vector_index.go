@@ -141,7 +141,7 @@ func (r *vectorIndexResource) Schema(ctx context.Context, request resource.Schem
 								stringplanmodifier.RequiresReplace(),
 							},
 						},
-						"type": schema.StringAttribute{
+						names.AttrType: schema.StringAttribute{
 							CustomType: fwtypes.StringEnumType[awstypes.SearchSchemaElementType](),
 							Required:   true,
 							PlanModifiers: []planmodifier.String{
