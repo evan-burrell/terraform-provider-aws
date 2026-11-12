@@ -216,7 +216,8 @@ func waitVectorIndexActive(ctx context.Context, conn *dynamodb.Client, tableName
 
 func waitAllVectorIndexesActive(ctx context.Context, conn *dynamodb.Client, tableName string, timeout time.Duration) (*awstypes.TableDescription, error) { //nolint:unparam
 	stateConf := &retry.StateChangeConf{
-		Pending: enum.Slice(awstypes.IndexStatusCreating, awstypes.IndexStatusUpdating),
+		// An index that is being deleted blocks the next index operation on the table until it is gone.
+		Pending: enum.Slice(awstypes.IndexStatusCreating, awstypes.IndexStatusDeleting, awstypes.IndexStatusUpdating),
 		Target:  enum.Slice(awstypes.IndexStatusActive),
 		Refresh: statusAllVectorIndexes(conn, tableName),
 		Timeout: max(createTableTimeout, timeout),
