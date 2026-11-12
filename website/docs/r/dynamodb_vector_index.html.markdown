@@ -53,7 +53,7 @@ resource "aws_dynamodb_table" "example" {
 
 The following arguments are required:
 
-* `dimensions` - (Required) Number of dimensions in each vector. Must match the size of the vector embeddings written to `vector_attribute.attribute_name`. Changing this value will re-create the resource.
+* `dimensions` - (Required) Number of dimensions in each vector. Valid value is between `1` and `4096`. Must match the size of the vector embeddings written to `vector_attribute.attribute_name`. Changing this value will re-create the resource.
 * `distance_function` - (Required) Distance function used to calculate similarity between vectors. Valid values are `COSINE`, `DOT_PRODUCT`, or `EUCLIDEAN`. Changing this value will re-create the resource.
 * `index_name` - (Required) Name of the vector index. Must be unique within the table. Changing this value will re-create the resource.
 * `projection` - (Required) Describes which attributes from the table are copied into the vector index. See [`projection` below](#projection).

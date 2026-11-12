@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/YakDriver/regexache"
 	awstypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/plancheck"
@@ -98,6 +99,26 @@ func TestAccDynamoDBVectorIndex_disappears(t *testing.T) {
 						plancheck.ExpectResourceAction(resourceName, plancheck.ResourceActionCreate),
 					},
 				},
+			},
+		},
+	})
+}
+
+func TestAccDynamoDBVectorIndex_dimensionsOutOfRange(t *testing.T) {
+	ctx := acctest.Context(t)
+
+	rNameTable := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
+	rName := acctest.RandomWithPrefix(t, acctest.ResourcePrefix)
+
+	acctest.ParallelTest(ctx, t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.DynamoDBServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccCheckVectorIndexDestroy(ctx, t),
+		Steps: []resource.TestStep{
+			{
+				Config:      testAccVectorIndexConfig_dimensionsAndDistance(rNameTable, rName, 4097, "COSINE"),
+				ExpectError: regexache.MustCompile(`Attribute\s+dimensions\s+value\s+must\s+be\s+between\s+1\s+and\s+4096,\s+got:\s+4097`),
 			},
 		},
 	})
@@ -203,4 +224,35 @@ resource "aws_dynamodb_vector_index" "test" {
   }
 }
 `, tableName, indexName)
+}
+
+func testAccVectorIndexConfig_dimensionsAndDistance(tableName, indexName string, dimensions int, distanceFunction string) string {
+	return fmt.Sprintf(`
+resource "aws_dynamodb_table" "test" {
+  name         = %[1]q
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+}
+
+resource "aws_dynamodb_vector_index" "test" {
+  table_name = aws_dynamodb_table.test.name
+  index_name = %[2]q
+
+  dimensions        = %[3]d
+  distance_function = %[4]q
+
+  vector_attribute = {
+    attribute_name = "embedding"
+  }
+
+  projection {
+    projection_type = "ALL"
+  }
+}
+`, tableName, indexName, dimensions, distanceFunction)
 }
